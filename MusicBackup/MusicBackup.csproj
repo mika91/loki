@@ -39,7 +39,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Ionic.Zip.Reduced">
-      <HintPath>libs\Ionic.Zip.Reduced.dll</HintPath>
+      <HintPath>..\Externals\Ionic.Zip.Reduced.dll</HintPath>
     </Reference>
     <Reference Include="log4net">
       <HintPath>..\Loki.Utils\bin\Debug\log4net.dll</HintPath>
