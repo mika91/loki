@@ -1,0 +1,15 @@
+﻿<?xml version='1.0' encoding='utf-8'?>
+<SettingsFile xmlns="http://schemas.microsoft.com/VisualStudio/2004/01/settings" CurrentProfile="(Default)" GeneratedClassNamespace="MusicBackup.ConsoleApp.Properties" GeneratedClassName="Settings">
+  <Profiles />
+  <Settings>
+    <Setting Name="Source" Type="System.String" Scope="Application">
+      <Value Profile="(Default)">D:\Music\src</Value>
+    </Setting>
+    <Setting Name="Destination" Type="System.String" Scope="Application">
+      <Value Profile="(Default)">D:\Music\dest</Value>
+    </Setting>
+    <Setting Name="NbCores" Type="System.String" Scope="Application">
+      <Value Profile="(Default)">0</Value>
+    </Setting>
+  </Settings>
+</SettingsFile>
