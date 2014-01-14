@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using MusicBackup.Entities;
 using log4net;
 using Loki.Utils;
@@ -13,45 +15,126 @@ namespace MusicBackup.ConsoleApp
 
         static void Main(string[] args)
         {
+            //Log.Info(() => "\r\n*************************");
+            //Log.Info(() => "***      BACKUP      ****");
+            //Log.Info(() => "*************************\r\n");
+
+            //var mng = new Class1();
+            //var resutls =
+            //    mng.Backup(
+            //        Properties.Settings.Default.Source,
+            //        Properties.Settings.Default.Destination,
+            //        false).ToList();
+
+
+            //Log.Info(() => "*************************");
+            //Log.Info(() => "***     RESULTS      ****");
+            //Log.Info(() => "*************************");
+
+            //Log.Info(() => "Music files converted = {0}", resutls.Count(x => x.Action == BackupResult.ActionType.Converted));
+            //Log.Info(() => "Music files copied    = {0}", resutls.Count(x => x.Action == BackupResult.ActionType.Copied));
+            //Log.Info(() => "Music files ignored   = {0}", resutls.Count(x => x.Action == BackupResult.ActionType.Ignored));
+            //Log.Info(() => "Music files total     = {0}", resutls.Count(x => x.Action == BackupResult.ActionType.Copied));
+
             // Read configuration
             var src_path = new DirectoryInfo(Properties.Settings.Default.Source);
             var dest_path = new DirectoryInfo(Properties.Settings.Default.Destination);
             var nbCores = Convert.ToInt32(Properties.Settings.Default.NbCores);
 
             // Init converter
-            AudioConverter.Instance.NbCores = 3;    // nbCores;
+            //AudioConverter.Instance.NbCores = 3;    // nbCores;     // TODO
+
+
+            List<ScanResult> scanResults = null;
 
             // Import source library
             Log.Info(() => "Trying to load source libray...");
             var srcLib = AudioLibrary.Load("src.content");
             if (srcLib == null)
             {
-                Log.Info(() => "No libray found. Create a new one");
-                srcLib = AudioLibrary.Create(src_path.FullName);
+                Log.Info(() => "No library found. Create a new one");
+                scanResults = AudioLibrary.Create(src_path.FullName, out srcLib);
             }
+            else if (new DirectoryInfo(srcLib.Root).FullName != src_path.FullName) // TODO securise if path doen't exist
+            {
+                Log.Info(() => "Library root folder doesn't match. Create a new one");
+                scanResults = AudioLibrary.Create(src_path.FullName, out srcLib); 
+            }
+            else
+            {
+                Log.Info(() => "Scanning source library...");
+                scanResults = srcLib.Scan(false);
+            }
+            PrintScanRes(scanResults);
 
-            // Import backup library
+            // Import libraries
             Log.Info(() => "Trying to load backup libray...");
             var destLib = AudioLibrary.Load("dest.content");
             if (destLib == null)
             {
-                Log.Info(() => "No libray found. Create a new one");
-                destLib = AudioLibrary.Create(dest_path.FullName);
+                Log.Info(() => "No library found. Create a new one");
+                scanResults = AudioLibrary.Create(dest_path.FullName, out destLib);
             }
+            else if (new DirectoryInfo(destLib.Root).FullName != dest_path.FullName) // TODO securise if path doen't exist
+            {
+                Log.Info(() => "Library root folder doesn't match. Create a new one");
+                scanResults = AudioLibrary.Create(dest_path.FullName, out destLib);
+            }
+            else
+            {
+                Log.Info(() => "Scanning destination library...");
+                scanResults = destLib.Scan(false);
+            }
+            PrintScanRes(scanResults);
 
-            //// Comparing both libraries
-            //AudioManager.Backup(srcLib, destLib, false, true);
+            // Backing up library
+            var results = AudioManager.Backup(srcLib, destLib, false, false).ToList();
+            PrintBackupRes(results);
 
             // Saving Libraries
             srcLib.Save("src.content");
             destLib.Save("dest.content");
 
-            // Exit
-            Console.WriteLine("Press a key to exit..");
-            Console.ReadLine();
+            //// Exit
+            //Console.WriteLine("Press a key to exit..");
+            //Console.ReadLine();
         }
 
+        public static void PrintBackupRes(List<BackupResult> results)
+        {
+            Log.Info(() => "*************************");
+            Log.Info(() => "***     RESULTS      ****");
+            Log.Info(() => "*************************");
 
+            var audioFiles  = results.Where(x => x.Source.AudioInfo != null).ToList();
+            var miscFiles   = results.Where(x => x.Source.AudioInfo == null).ToList();
+           
+            Log.Info(() => "");
+            Log.Info(() => "Music files converted = {0}", audioFiles.Count(x => x.Action == BackupResult.ActionType.Converted));
+            Log.Info(() => "Music files copied    = {0}", audioFiles.Count(x => x.Action == BackupResult.ActionType.Copied));
+            Log.Info(() => "Music files ignored   = {0}", audioFiles.Count(x => x.Action == BackupResult.ActionType.Ignored));
+            Log.Info(() => "Music files total     = {0}", audioFiles.Count());
+
+            Log.Info(() => "");
+            Log.Info(() => "Misc files copied    = {0}" , miscFiles.Count(x => x.Action == BackupResult.ActionType.Copied));
+            Log.Info(() => "Misc files ignored   = {0}" , miscFiles.Count(x => x.Action == BackupResult.ActionType.Ignored));
+            Log.Info(() => "Misc files total     = {0}" , miscFiles.Count());
+        }
+
+        // TODO -- scan result both misc & audio files
+        public static void PrintScanRes(List<ScanResult> results)
+        {
+            Log.Info(() => "*************************");
+            Log.Info(() => "***  Scan Results    ****");
+            Log.Info(() => "*************************");
+
+            Log.Info(() => "");
+            Log.Info(() => "Files added     = {0}", results.Count(x => x.Action == ScanResult.ActionType.Added));
+            Log.Info(() => "Files deleted   = {0}", results.Count(x => x.Action == ScanResult.ActionType.Deleted));
+            Log.Info(() => "Files ignored   = {0}", results.Count(x => x.Action == ScanResult.ActionType.Ignored));
+            Log.Info(() => "Files updated   = {0}", results.Count(x => x.Action == ScanResult.ActionType.Updated));
+            Log.Info(() => "Files total     = {0}", results.Count());
+        }
 
         //static void Main2(string[] args)
         //{
@@ -115,7 +198,7 @@ namespace MusicBackup.ConsoleApp
         //    }
 
         //    // List files
-        //    var srcFiles  = src.GetFiles().OrderBy(x => x.Name).ToList();
+        //    var srcFiles = src.GetFiles().OrderBy(x => x.Name).ToList();
         //    var destFiles = dest.GetFiles().OrderBy(x => x.Name).ToList();
 
         //    foreach (var srcFile in srcFiles)
@@ -141,15 +224,15 @@ namespace MusicBackup.ConsoleApp
         //        }
         //        else
         //        {
-        //           if (!isMusicFile)
-        //           {
-        //               // Simple copy
-        //               Console.WriteLine("=> Copy misc file: {0}", destFile);
-        //               File.Copy(srcFile.FullName, destFile);
-        //               result.NbCopiedMisc++;
-        //           }
-        //           else
-        //           {
+        //            if (!isMusicFile)
+        //            {
+        //                // Simple copy
+        //                Console.WriteLine("=> Copy misc file: {0}", destFile);
+        //                File.Copy(srcFile.FullName, destFile);
+        //                result.NbCopiedMisc++;
+        //            }
+        //            else
+        //            {
         //                // Display FileInfo
         //                Console.WriteLine("\r\n-------------------------------------");
         //                Console.WriteLine("New music file found: {0}", srcFile.FullName);
@@ -177,7 +260,7 @@ namespace MusicBackup.ConsoleApp
 
         //    // Recursive directories
         //    var subdirs = src.GetDirectories().ToList();
-        //    subdirs.ForEach( x => DoBackup(x, new DirectoryInfo(x.FullName.Replace(src.FullName, dest.FullName)), result));
+        //    subdirs.ForEach(x => DoBackup(x, new DirectoryInfo(x.FullName.Replace(src.FullName, dest.FullName)), result));
         //}
 
     }

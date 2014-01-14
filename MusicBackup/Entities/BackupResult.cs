@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Runtime.Serialization;
-using System.Text;
+﻿using System.Runtime.Serialization;
 
 namespace MusicBackup.Entities
 {
@@ -10,10 +6,10 @@ namespace MusicBackup.Entities
     public class BackupResult
     {
         [DataMember]
-        public string InPath    { get; internal set; }
+        public LibItem Source     { get; internal set; }
 
         [DataMember]
-        public string OutPath { get; internal set; }
+        public LibItem Dest       { get; internal set; }
 
         [DataMember]
         public ActionType Action { get; internal set; }

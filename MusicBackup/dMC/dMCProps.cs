@@ -1,22 +1,34 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using DMCSCRIPTINGLib;
 
-namespace MusicBackup.Entities
+namespace MusicBackup.dMC
 {
-    public class AudioProps : IEnumerable<KeyValuePair<String, String>>
+    /// <summary>
+    /// dBpoweramp audio files properties collection.
+    /// </summary>
+    public class dMCProps : IEnumerable<KeyValuePair<String, String>>
     {
         private static Converter converter = new Converter();
         private Dictionary<string, string> dico;
 
-        public AudioProps(String path)
+        public static dMCProps Get(String path)
+        {
+            if (!File.Exists(path))
+                return null;
+
+            return new dMCProps(path);
+        }
+
+        protected dMCProps(String path)
         {
             dico = new Dictionary<string, string>();
 
-            // Read DBPowerAmp audio properties
+            // Read dBpoweramp audio properties
             var props =
                 converter.AudioProperties[path].Split(new string[] { "\r" }, StringSplitOptions.RemoveEmptyEntries)
                                                .ToList();
@@ -76,7 +88,6 @@ namespace MusicBackup.Entities
         {
             return dico.GetEnumerator();
         }
-
 
         public T Get<T>(String name, String[] separators, int index, bool removeWhite = false)
         {

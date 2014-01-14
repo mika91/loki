@@ -1,11 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.Serialization;
 using System.Xml;
 using Ionic.Zip;
 using Loki.Utils;
+using Loki.Utils.Extensions;
+using MusicBackup.dMC;
 using log4net;
 
 namespace MusicBackup.Entities
@@ -13,31 +16,20 @@ namespace MusicBackup.Entities
     [DataContract]
     public class AudioLibrary
     {
-        private static ILog Log = LogManager.GetLogger(typeof (AudioLibrary));
+        private static ILog Log = LogManager.GetLogger(typeof(AudioLibrary));
 
         [DataMember(Name = "Root", Order = 0)]
-        private string _path = "";
-        public String Root 
-        {
-            get { return _path; }
-            set
-            {
-                _path = value;
-                Log.Info(() => "Set Library path: {0}", value);
-                Log.Info(() => "A new scan is required", value);
-                Scan();
-            }
-        }
+        public String Root { get; private set; }
 
         [DataMember(Name = "LastUpdate", Order = 1)]
         public DateTime LastUpdate { get; internal set; }
 
-        private Dictionary<String, Item> _items = new Dictionary<String, Item>();
+        Dictionary<String, LibItem> _dicoItems = new Dictionary<String, LibItem>();
         [DataMember(Name = "Items", Order = 2)]
-        private List<Item> ItemList
+        private List<LibItem> ItemList
         {
-            get { return _items.Values.ToList(); }
-            set { _items = value.ToDictionary(x => x.FilePath); }
+            get { return _dicoItems.Values.OrderBy(x=>x.FilePath).ToList(); }
+            set { _dicoItems = value.ToDictionary(x => x.FilePath); }
         }
 
         private AudioLibrary()
@@ -48,110 +40,135 @@ namespace MusicBackup.Entities
         /// Create a new library
         /// </summary>
         /// <param name="dirPath">library path</param>
+        /// <param name="lib"></param>
         /// <returns></returns>
-        public static AudioLibrary Create(String dirPath)
+        public static List<ScanResult> Create(String dirPath, out AudioLibrary lib)
         {
-            var lib = new AudioLibrary();
-            lib.Root = dirPath;
-            lib.Scan();
-
-            return lib;
+            lib = new AudioLibrary() {Root = dirPath};
+            return lib.Scan(true);
         }
 
         /// <summary>
         /// Update the audio library
         /// </summary>
         /// <param name="force">Force to update already existing entries</param>
-        public IEnumerable<ScanResult> Scan(bool force = false)
+        public List<ScanResult> Scan(bool force = false)
         {
-            Log.Info(() => "Scan AudioLibrary <{0}>", Root);
+            return scan(force).ToList();
+        }
+
+        private IEnumerable<ScanResult> scan(bool force = false)
+        {
+            Log.Info(() => "Scan AudioLibrary <{0}> - Forcemode = {1}", Root, force);
             LastUpdate = DateTime.Now;
+
+            Stopwatch sw = new Stopwatch();
+            sw.Start();
 
             // #######################
             // List all files on disk
             // #######################
-            var filesOnDisk = GetFilesOnDisk(new DirectoryInfo(Root)).ToList();
+            var filesOnDisk =new HashSet<string>(
+                new DirectoryInfo(Root).GetFiles("*", SearchOption.AllDirectories)
+                                       .Select(x => x.FullName));
+ 
             Log.Info(() => "{0} files found on disk", filesOnDisk.Count);
 
 
             // ##############################
             // Remove deleted files from disk
             // ##############################
-            foreach (var item in _items.Values)
+            List<String> removed = new List<String>();
+            foreach (var item in _dicoItems.Values)
             {
                 if (!filesOnDisk.Contains(item.FilePath))
                 {
                     // Log
-                    Log.Info(() => "{0} file deleted: {1}", item is ItemAudio ? "Music" : "Misc", item.FilePath);
+                    Log.Info(() => "{0} file deleted: {1}", (item.AudioInfo != null) ? "Music" : "Misc", item.FilePath);
+
+                    // Mark as removed file
+                    removed.Add(item.FilePath);
 
                     // yield results
                     yield return new ScanResult() { Action = ScanResult.ActionType.Deleted, Path = item.FilePath };
                 }
             }
-
+            removed.ForEach(x=> _dicoItems.Remove(x));
 
             // #############################################
-            // Add/update library accroding to files on disk
+            // Add/update library according to files on disk
             // #############################################
             foreach (var file in filesOnDisk)
             {
                 // Add/update new file
-                var newfile = !_items.ContainsKey(file);
-                var item = ItemFactory.Create(file);
-                _items[file] = item;
+                LibItem item = null;
+                bool newfile = !_dicoItems.TryGetValue(file, out item);
 
                 // Log & yield results
                 if (newfile)
                 {
-                    Log.InfoFormat("New {0} file added: {1}", item is ItemAudio ? "Music" : "Misc", item.FilePath);
+                    item = new LibItem(file);
+                    _dicoItems[file] = item;
+                    Log.Info(()=>"New {0} file added: {1}", (item.AudioInfo != null) ? "Music" : "Misc", item.FilePath);
                     LogProperties(item);
                     yield return new ScanResult() { Action = ScanResult.ActionType.Added, Path = item.FilePath };
                 }
                 else if (force)
                 {
-                    Log.InfoFormat("{0} file updated: {1}", item is ItemAudio ? "Music" : "Misc", item.FilePath);
+                    item = new LibItem(file);
+                    Log.Info(() => "{0} file updated: {1}", (item.AudioInfo != null) ? "Music" : "Misc", item.FilePath);
                     LogProperties(item);
+                    _dicoItems[file] = item;
                     yield return new ScanResult() { Action = ScanResult.ActionType.Updated, Path = item.FilePath };
                 }
                 else
                 {
-                    Log.DebugFormat("{0} file ignored: {1}", item is ItemAudio ? "Music" : "Misc", item.FilePath);
+                    Log.Debug(() => "{0} file ignored: {1}", (item.AudioInfo != null) ? "Music" : "Misc", item.FilePath);
                     yield return new ScanResult() { Action = ScanResult.ActionType.Ignored, Path = item.FilePath };
                 }
             }
+
+            sw.Stop();
+            Log.Info(()=> "Scan library done in {0}ms", sw.ElapsedMilliseconds);
         }
 
 
         #region Items accessors
 
-        public Item this[string path]
+        public LibItem this[string path]
         {
             get
             {
-                Item item;
-                return _items.TryGetValue(path, out item)
+                LibItem item;
+                return _dicoItems.TryGetValue(path, out item)
                            ? item
                            : null;
             }
         }
 
-        public IEnumerable<Item> GetAudioFiles()
+        public IEnumerable<LibItem> GetAudioItems()
         {
-            return _items.Values.Where(x => x is ItemAudio).OrderBy(x => x.FilePath);
+            return _dicoItems.Values.Where(x => x.AudioInfo != null).OrderBy(x => x.FilePath);
         }
 
-        public IEnumerable<Item> GetMiscFiles()
+        public IEnumerable<LibItem> GetMiscItems()
         {
-            return _items.Values.Where(x => x is ItemMisc).OrderBy(x => x.FilePath);
+            return _dicoItems.Values.Where(x => x.AudioInfo == null).OrderBy(x => x.FilePath);
         }
 
-        public IEnumerable<Item> GetAllFiles()
+        public IEnumerable<LibItem> GetAllItems()
         {
-            return _items.Values.OrderBy(x => x.FilePath);
+            return _dicoItems.Values.OrderBy(x => x.FilePath);
+        }
+
+        internal void Add(string filepath)
+        {
+            // TOD safer
+            _dicoItems.Add(filepath, new LibItem(filepath));
         }
 
         #endregion
-     
+
         #region Import/Export
 
         public bool Save(String path)
@@ -178,7 +195,7 @@ namespace MusicBackup.Entities
                 Console.WriteLine("Error while loading library: {0}", ex.Message);
                 return false;
             }
-          
+
         }
 
         public static AudioLibrary Load(String path)
@@ -214,46 +231,21 @@ namespace MusicBackup.Entities
         #region Misc functions
 
         /// <summary>
-        /// List all files on a directory
-        /// </summary>
-        /// <param name="dir">Directory to check</param>
-        /// <returns>List of files path</returns>
-        internal static IEnumerable<string> GetFilesOnDisk(DirectoryInfo dir)
-        {
-            // Check directory
-            if (!dir.Exists)
-            {
-                Log.Warn(() => "Directory {0} doesn't exist", dir.FullName);
-                yield break;
-            }
-
-            // List files
-            foreach (var file in dir.GetFiles())
-                yield return file.FullName;
-
-            // Recursively list sub-folder files
-            foreach (var subdir in dir.GetDirectories())
-                foreach (var file in GetFilesOnDisk(subdir))
-                    yield return file;
-        }
-
-        /// <summary>
         /// Log Audio files properties
         /// </summary>
         /// <param name="item"></param>
-        private void LogProperties(Item item)
+        private void LogProperties(LibItem item)
         {
             if (!Log.IsDebugEnabled)
                 return;
 
-            var aitem = item as ItemAudio;
-            if (aitem == null)
+            var props = dMCProps.Get(item.FilePath);
+
+            if (props == null)
                 return;
 
             Log.Debug("{");
-            (item as ItemAudio).GetAllProperties()
-                               .ToList()
-                               .ForEach(x => Log.DebugFormat("\t{0}: {1}", x.Key, x.Value));
+            props.ForEach(x => Log.DebugFormat("\t{0}: {1}", x.Key, x.Value));
             Log.Debug("}");
         }
 
@@ -262,10 +254,39 @@ namespace MusicBackup.Entities
 
     }
 
+    [DataContract]
+    public class LibItem
+    {
+        [DataMember]
+        public String    FilePath   { get; private set; }
+
+
+        [DataMember]
+        public AudioInfo AudioInfo  { get; private set; }
+
+        public String Extension {
+            get { return new FileInfo(FilePath).Extension; }
+        }
+
+        /// <summary>
+        /// For serilization only
+        /// </summary>
+        private LibItem()
+        {
+        }
+
+        public LibItem(String path)
+        {
+            FilePath = path;
+            AudioInfo = AudioInfo.Get(path);
+        }
+
+    }
 
 
 
-   
 
-   
+
+
+
 }

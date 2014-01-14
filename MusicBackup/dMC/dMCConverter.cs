@@ -3,22 +3,20 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
-using DMCSCRIPTINGLib;
 using  System.Timers;
 using log4net;
 using Loki.Utils;
 
-
-namespace MusicBackup
+namespace MusicBackup.dMC
 {
     /// <summary>
     /// http://dbpoweramp.com/developer-scripting-dmc.htm
     /// http://dbpoweramp.com/developer-cli-encoder.htm
     /// http://lame.sourceforge.net/vbr.php
     /// </summary>
-    public class AudioConverter
+    internal class dMCConverter
     {
-        private ILog Log = LogManager.GetLogger(typeof(AudioConverter));
+        private static readonly ILog Log = LogManager.GetLogger(typeof(dMCConverter));
 
         private int _nbCores = 1;
         public int NbCores
@@ -31,16 +29,16 @@ namespace MusicBackup
                 if (_nbCores <= 0)
                     _nbCores = Environment.ProcessorCount - 1;
 
-                Console.WriteLine("AudioConverter NbCores = {0}", _nbCores);
+                Log.Debug(() => "dMC.Converter NbCores = {0}", _nbCores);
             }
         }
 
-        private DMCSCRIPTINGLib.Converter dbPoweramp;
+        private readonly DMCSCRIPTINGLib.Converter dbPoweramp;
 
         private readonly Queue<Job>  WaitingJobs = new Queue<Job>();
         private readonly List<Job>   RunningJobs = new List<Job>();
 
-        private AudioConverter()
+        private dMCConverter()
         {
             // Default converter options
             dbPoweramp = new DMCSCRIPTINGLib.Converter();
@@ -76,7 +74,7 @@ namespace MusicBackup
         private void EnqueueJob(Job job)
         {
             // Enqueue the job
-            Console.WriteLine("Enqueing new job: {0}", job.Output);
+            Log.Info(()=>"Enqueing new job: {0}", job.Output);
             lock (_lock)
             {
                 WaitingJobs.Enqueue(job);
@@ -85,7 +83,7 @@ namespace MusicBackup
             // Ensure watchdog is running
             if (!jobWatchdog.Enabled)
             {
-                Console.WriteLine("resuming watchdog");
+                Log.Info(()=>"resuming watchdog");
                 jobWatchdog.Start();
             }
         }
@@ -103,7 +101,7 @@ namespace MusicBackup
                 RunningJobs.Add(job);
             }
 
-            Converter DMC = new Converter();
+            dMCConverter DMC = new dMCConverter();
 
 
             var task = Task.Factory.StartNew(() =>
@@ -156,7 +154,7 @@ namespace MusicBackup
                 if (!usedCores.Contains(i))
                 {
                     availableCore = i;
-                    Console.WriteLine("Core<{0}> is waiting for a new job.", i);
+                    Log.Debug(()=>"Core<{0}> is waiting for a new job.", i);
                     break;
                 }
             }
@@ -178,7 +176,7 @@ namespace MusicBackup
             else
             {
                 // Suspend watchdog
-                Console.WriteLine("No more pending job => stopping watchdog");
+                Log.Info(()=>"No more pending job => stopping watchdog");
                 jobWatchdog.Stop();
             }
 
@@ -195,9 +193,9 @@ namespace MusicBackup
 
         #region Singleton
 
-        private static readonly Lazy<AudioConverter> _instance = new Lazy<AudioConverter>(() => new AudioConverter());
+        private static readonly Lazy<dMCConverter> _instance = new Lazy<dMCConverter>(() => new dMCConverter());
 
-        public static AudioConverter Instance { get { return _instance.Value; } }
+        public static dMCConverter Instance { get { return _instance.Value; } }
 
         #endregion
 
