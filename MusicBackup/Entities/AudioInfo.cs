@@ -2,6 +2,7 @@
 using System.IO;
 using System.Linq;
 using System.Runtime.Serialization;
+using System.Text.RegularExpressions;
 using MusicBackup.dMC;
 using log4net;
 using Loki.Utils;
@@ -13,7 +14,11 @@ namespace MusicBackup.Entities
     {
         public static readonly ILog Log = LogManager.GetLogger(typeof(AudioInfo));
 
-        #region Audio info
+        #region Properties
+
+        // ********************
+        //   Audio Properties
+        // ********************
 
         [DataMember(Name = "Size")]
         public float Size { get; set; }
@@ -41,10 +46,11 @@ namespace MusicBackup.Entities
 
         [DataMember(Name = "AudioQuality")]
         public string AudioQuality { get; set; }
+        
 
-        #endregion
-
-        #region Main Tags
+        // ********************
+        //       Metadata
+        // ********************
 
         [DataMember(Name = "Artist")]
         public String Artist { get; set; }
@@ -73,8 +79,8 @@ namespace MusicBackup.Entities
         [DataMember(Name = "Genre")]
         public string Genre { get; set; }
 
-        #endregion
 
+        #endregion
 
         /// <summary>
         /// Get the Audio Properties of a file.
@@ -101,17 +107,7 @@ namespace MusicBackup.Entities
             }
 
             // Parse dBpoweramp raw properties
-            try
-            {
-                var ainfo = new AudioInfo();
-                ainfo.Parse(aprops);
-                return ainfo;
-            }
-            catch (Exception ex)
-            {
-                Log.Error(() => "Error while parsing dBPoweramp properties: {0}", ex.Message);
-                return null;
-            }
+            return new AudioInfo(aprops);
         }
 
         /// <summary>
@@ -124,41 +120,181 @@ namespace MusicBackup.Entities
             return AudioInfo.Get(file.FullName);
         }
 
-        /// <summary>
-        /// Parse dBpoweramp Audio properties
-        /// </summary>
-        /// <param name="props">dBpoweramp Audio properties</param>
-        private void Parse(dMCProps props)
+
+        // Only for serializtion purpose
+        private AudioInfo(){}   
+
+        private AudioInfo(dMCProps props)
         {
-            String[] splits;
+            try
+            {
+                String[] splits;
 
-            this.Size = props.Get<float>("Size", new string[] { " MB" }, 0, true);
-            this.Compression = props.Get<int>("Size", new string[] { "(", "%" }, 1, true);
-            this.Format = props.Get<string>("Type", new string[] { "[.", "]" }, 1);
+                //this.Size = props.Get<float>("Size", new string[] { " MB" }, 0, true);
+                this.Size = ParseSize(props);
+                //this.Compression = props.Get<int>("Size", new string[] { "(", "%" }, 1, true);
+                this.Compression = Parse<int>(props, "Size", new string[] { "(", "%" }, 1, true);
+                //this.Format = props.Get<string>("Type", new string[] { "[.", "]" }, 1);
+                this.Format = Parse<string>(props, "Type", new string[] { "[.", "]" }, 1);
+                //var minutes = props.Get<string>("Length", new string[] { " " }, 0, true);
+                //var secondes = props.Get<string>("Length", new string[] { " " }, 2, true);
+                //this.Duration = (String.IsNullOrEmpty(minutes) ? 0 : Convert.ToInt32(minutes) * 60)
+                //                    + (String.IsNullOrEmpty(secondes) ? 0 : Convert.ToInt32(secondes));
+                this.Duration = ParseDuration(props);
 
-            var minutes = props.Get<string>("Length", new string[] { " " }, 0, true);
-            var secondes = props.Get<string>("Length", new string[] { " " }, 2, true);
-            this.Duration = (String.IsNullOrEmpty(minutes) ? 0 : Convert.ToInt32(minutes) * 60)
-                                + (String.IsNullOrEmpty(secondes) ? 0 : Convert.ToInt32(secondes));
+                //this.Channels = props.Get<int>("Channels", new string[] { "(" }, 0, true);
+                this.Channels = Parse<int>(props, "Channels", new string[] { "(" }, 0, true);
+                //this.SampleRate = props.Get<float>("Sample Rate", new string[] { "KHz" }, 0, true);
+                this.SampleRate = Parse<float>(props, "Sample Rate", new string[] { "KHz" }, 0, true);
+                //this.SampleSize = props.Get<int>("Sample Size", new string[] { "bit" }, 0, true);
+                this.SampleSize = Parse<int>(props, "Sample Size", new string[] { "bit" }, 0, true);
+                //this.BitRate = props.Get<int>("Bit Rate", new string[] { "kbps" }, 0, true);
+                this.BitRate = Parse<int>(props, "Bit Rate", new string[] { "kbps" }, 0, true);
 
-            this.Channels = props.Get<int>("Channels", new string[] { "(" }, 0, true);
-            this.SampleRate = props.Get<float>("Sample Rate", new string[] { "KHz" }, 0, true);
-            this.SampleSize = props.Get<int>("Sample Size", new string[] { "bit" }, 0, true);
-            this.BitRate = props.Get<int>("Bit Rate", new string[] { "kbps" }, 0, true);
+                this.AudioQuality = props["Audio Quality"];
 
-            this.AudioQuality = props["Audio Quality"];
-
-            // Main Tags
-            this.Artist = props["Artist"];
-            this.AlbumArtist = props["Album Artist"];
-            this.Composer = props["Composer"];
-            this.Label = props["Label"];
-            this.Title = props["Title"];
-            this.Album = props["Album"];
-            this.Track = props["Track"];
-            this.Year = props["Year"];
-            this.Genre = props["Genre"];
-          
+                // Main Tags
+                this.Artist = props["Artist"];
+                this.AlbumArtist = props["Album Artist"];
+                this.Composer = props["Composer"];
+                this.Label = props["Label"];
+                this.Title = props["Title"];
+                this.Album = props["Album"];
+                this.Track = props["Track"];
+                this.Year = props["Year"];
+                this.Genre = props["Genre"];
+               
+            }
+            catch (Exception ex)
+            {
+                Log.Error(() => "Error while parsing dBPoweramp properties: {0}", ex.Message);
+            }
         }
+
+        #region Parse methods
+
+        int ParseSize(dMCProps props)
+        {
+            // Read property value
+            String val = props["Size"];
+
+            // If not defined, return default value
+            if (String.IsNullOrEmpty(val))
+            {
+                Log.Warn(() => "No <Size> property found");
+                return -1;
+            }
+
+            try
+            {
+                // Parse file size
+                var words = val.Split(new string[] { " " }, StringSplitOptions.RemoveEmptyEntries);
+                for (int i = 0; i < words.Length; i++)
+                {
+                    if (words[i].Contains("GB"))
+                        return (int)(Convert.ToSingle(words[i - 1]) * 1024 * 1204 * 1204);
+                   
+                    if (words[i].Contains("MB"))
+                        return (int)(Convert.ToSingle(words[i - 1]) * 1024 * 1204);
+
+                    if (words[i].Contains("KB"))
+                        return (int)(Convert.ToSingle(words[i - 1]) * 1024);
+
+                    if (words[i].Contains("KB"))
+                        return (int)(Convert.ToSingle(words[i - 1]));
+                }
+
+                return -1;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(() => "Error while parsing Size <{0}>: {1}", ex.Message);
+                return -2;
+            }
+
+        }
+
+        int ParseDuration(dMCProps props)
+        {
+            // Read property value
+            String val = props["Length"];
+            
+            // If not defined, return default value
+            if (String.IsNullOrEmpty(val))
+            {
+                Log.Warn(()=>"No <Length> property found");
+                return 0;
+            }
+                    
+            try
+            {
+                // Parse file duration
+                float duration = 0;
+                var words = val.Split(new string[] { " " }, StringSplitOptions.RemoveEmptyEntries);
+                for (int i = 0; i < words.Length; i++)
+                {
+                    if (words[i].Contains("hou"))
+                        duration += 3600 * Convert.ToSingle(words[i - 1]);
+
+                    if (words[i].Contains("min"))
+                        duration += 60 * Convert.ToSingle(words[i - 1]);
+
+                    if (words[i].Contains("sec"))
+                        duration += Convert.ToSingle(words[i - 1]);
+                }
+
+                return (int) duration;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(()=>"Error while parsing Duration <{0}>: {1}", val, ex.Message);
+                return -2;
+            }
+        }
+
+        T Parse<T>(dMCProps props, string name, String[] separators, int index, bool removeWhite = false)
+        {
+            // Read property value
+            String prop = props[name];
+
+            // If not defined, return default value
+            if (String.IsNullOrEmpty(prop))
+            {
+                Log.Warn(() => "No <{0}> property found", name);
+                return default(T);
+            }
+
+            // Extract wanted value
+            var val = Extract(prop, separators, index, removeWhite);
+            if (String.IsNullOrEmpty(val))
+            {
+                Log.Error(() => "No substring candidate found for propertry <{0}><{1}>", name, prop);
+                return default(T);
+            }
+
+            // Convert to desired type
+            try
+            {
+                var result = (T)Convert.ChangeType(val, typeof(T));
+                return result;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(() => "Error while converting propertry <{0}><{1}>: {2}", name, val, ex.Message);
+                return default(T);
+            }
+        }
+
+        String Extract(String prop, String[] separators, int index, bool removeWhite = false)
+        {
+            var splits = prop.Split(separators, StringSplitOptions.RemoveEmptyEntries);
+            return (index < splits.Count())
+                ? removeWhite
+                    ? Regex.Replace(splits[index], @"\p{Z}", "")
+                    : splits[index]
+                : String.Empty;
+        }
+
+        #endregion
     }
 }
