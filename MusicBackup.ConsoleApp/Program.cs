@@ -88,7 +88,7 @@ namespace MusicBackup.ConsoleApp
             PrintScanRes(scanResults);
 
             // Backing up library
-            var results = AudioManager.Backup(srcLib, destLib, false, false).ToList();
+            var results = AudioManager.Backup(srcLib, destLib, true, false).ToList();
             PrintBackupRes(results);
 
             // Saving Libraries

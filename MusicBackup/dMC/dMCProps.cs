@@ -62,7 +62,10 @@ namespace MusicBackup.dMC
                         var info = splits[1].Substring(pos);
 
                         if (_dico.ContainsKey(name))
-                            Log.Warn(() => "dMCProps already has a property named {0}. Ignore it (value={1})", name, info);
+                        {
+                            Log.Warn(() => "dMCProps already has a property named <{0}> = {1}", name, _dico[name]);
+                            Log.Warn(() => "Ignore new value = {0}", info);
+                        }
                         else
                             _dico.Add(name, info);
                     }

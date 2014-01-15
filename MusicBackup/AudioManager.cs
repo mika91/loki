@@ -217,8 +217,11 @@ namespace MusicBackup
                     if (src.AudioInfo == null)
                     {
                         Log.Info(() => "Copying misc file: {0}", output);
-                        SafeCopy(src.FilePath, output);
-                        destLib.Add(output);
+                        if (!simulate)
+                        {
+                            if (SafeCopy(src.FilePath, output))
+                                destLib.Add(output);
+                        }
                         yield return new BackupResult() { Action = BackupResult.ActionType.Copied, Source = src, Dest = dest };
                     }
                     else
@@ -227,15 +230,22 @@ namespace MusicBackup
                         if (!audio.Format.Contains("mp3"))
                         {
                             Log.Info(() => "Converting music file: {0}", output);
-                            dMCConverter.Instance.ConvertToMP3(src.FilePath, output);
-                            destLib.Add(output);
+                            if (!simulate)
+                            {
+                                // TODO - add to lib only if succeeded? (or scan after all copy/convert)
+                                dMCConverter.Instance.ConvertToMP3(src.FilePath, output);
+                                destLib.Add(output);
+                            }
                             yield return new BackupResult() { Action = BackupResult.ActionType.Converted, Source = src, Dest = dest };
                         }
                         else
                         {
                             Log.Info(() => "Copying music file: {0}", output);
-                            SafeCopy(src.FilePath, output);
-                            destLib.Add(output);
+                            if (!simulate)
+                            {
+                                if (SafeCopy(src.FilePath, output))
+                                    destLib.Add(output);
+                            }
                             yield return new BackupResult() { Action = BackupResult.ActionType.Copied, Source = src, Dest = dest };
                         }
                     }
@@ -259,12 +269,21 @@ namespace MusicBackup
             return filename.Replace(srcRoot, destRoot);
         }
 
-        static void SafeCopy(String src, string dest)
+        static bool SafeCopy(String src, string dest)
         {
-            var destInfo = new FileInfo(dest);
-            if (!Directory.Exists(destInfo.DirectoryName))
-                Directory.CreateDirectory(destInfo.DirectoryName);
-            File.Copy(src, dest, true);
+            try
+            {
+                var destInfo = new FileInfo(dest);
+                if (!Directory.Exists(destInfo.DirectoryName))
+                    Directory.CreateDirectory(destInfo.DirectoryName);
+                File.Copy(src, dest, true);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(() => "Failed to copy <{0}> to <{1}>: {2}", src, dest, ex.Message);
+                return false;
+            }
         }
 
         #endregion
