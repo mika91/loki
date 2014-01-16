@@ -7,12 +7,12 @@ using MusicBackup.dMC;
 using log4net;
 using Loki.Utils;
 
-namespace MusicBackup.Entities
+namespace MusicBackup
 {
     [DataContract]
-    public class AudioInfo
+    public class AudioItem : Item
     {
-        public static readonly ILog Log = LogManager.GetLogger(typeof(AudioInfo));
+        public static readonly ILog Log = LogManager.GetLogger(typeof(AudioItem));
 
         #region Properties
 
@@ -46,7 +46,7 @@ namespace MusicBackup.Entities
 
         [DataMember(Name = "AudioQuality")]
         public string AudioQuality { get; set; }
-        
+
 
         // ********************
         //       Metadata
@@ -82,53 +82,12 @@ namespace MusicBackup.Entities
 
         #endregion
 
-        /// <summary>
-        /// Get the Audio Properties of a file.
-        /// </summary>
-        /// <param name="path">Path of the file.</param>
-        /// <returns>File Audio Properties, or null if not an audio file.</returns>
-        public static AudioInfo Get(String path)
-        {
-            // Check that the file exists
-            if (!File.Exists(path))
-            {
-                Log.Debug(() => "File <{0}> doesn't exist!", path);
-                return null;
-            }
-
-            // Get dBpoweramp audio properties
-            var aprops = dMCProps.Get(path);
-
-            // Not an audio file
-            if (!aprops.Any())
-            {
-                Log.Debug(() => "File <{0}> is not an audio file!", path);
-                return null;
-            }
-
-            // Parse dBpoweramp raw properties
-            return new AudioInfo(aprops);
-        }
-
-        /// <summary>
-        /// Get the Audio Properties of a file.
-        /// </summary>
-        /// <param name="file">FileInfo.</param>
-        /// <returns>File Audio Properties, or null if not an audio file.</returns>
-        public static AudioInfo Get(FileInfo file)
-        {
-            return AudioInfo.Get(file.FullName);
-        }
-
-
-        // Only for serializtion purpose
-        private AudioInfo(){}   
-
-        private AudioInfo(dMCProps props)
+        public AudioItem(String path, dMCProps props)
+            : base(path)
         {
             try
             {
-                String[] splits;
+                //String[] splits;
 
                 //this.Size = props.Get<float>("Size", new string[] { " MB" }, 0, true);
                 this.Size = ParseSize(props);
@@ -163,13 +122,16 @@ namespace MusicBackup.Entities
                 this.Track = props["Track"];
                 this.Year = props["Year"];
                 this.Genre = props["Genre"];
-               
+
             }
             catch (Exception ex)
             {
                 Log.Error(() => "Error while parsing dBPoweramp properties: {0}", ex.Message);
             }
         }
+
+        // Only for serializtion purpose
+        private AudioItem() { }
 
         #region Parse methods
 
@@ -193,7 +155,7 @@ namespace MusicBackup.Entities
                 {
                     if (words[i].Contains("GB"))
                         return (int)(Convert.ToSingle(words[i - 1]) * 1024 * 1204 * 1204);
-                   
+
                     if (words[i].Contains("MB"))
                         return (int)(Convert.ToSingle(words[i - 1]) * 1024 * 1204);
 
@@ -218,14 +180,14 @@ namespace MusicBackup.Entities
         {
             // Read property value
             String val = props["Length"];
-            
+
             // If not defined, return default value
             if (String.IsNullOrEmpty(val))
             {
-                Log.Warn(()=>"No <Length> property found");
+                Log.Warn(() => "No <Length> property found");
                 return 0;
             }
-                    
+
             try
             {
                 // Parse file duration
@@ -243,11 +205,11 @@ namespace MusicBackup.Entities
                         duration += Convert.ToSingle(words[i - 1]);
                 }
 
-                return (int) duration;
+                return (int)duration;
             }
             catch (Exception ex)
             {
-                Log.Error(()=>"Error while parsing Duration <{0}>: {1}", val, ex.Message);
+                Log.Error(() => "Error while parsing Duration <{0}>: {1}", val, ex.Message);
                 return -2;
             }
         }

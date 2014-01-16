@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using  System.Timers;
 using log4net;
@@ -18,209 +20,303 @@ namespace MusicBackup.dMC
     {
         private static readonly ILog Log = LogManager.GetLogger(typeof(dMCConverter));
 
+        private dMCConverter()
+        {
+            Log.Info(() => "Creating a new dMCConverter...", _nbCores);
+
+            // Set default number of cores to be used
+            NbCores = Properties.Settings.Default.NbCores;
+
+            // Initialize job queues
+            _runningJobs = new Job[Environment.ProcessorCount];
+            _waitingJobs = new Queue<Job>();
+
+            // Init scheduler
+            _scheduler = new Timer(500);
+            _scheduler.Elapsed += scheduler_Elapsed;
+
+            Log.Info(() => "dMCConverter successfull created.", _nbCores);
+        }
+
+        #region Conversion Methods
+
+        public IdMCJob ToMp3(String input, String output, int bitrate = 320)
+        {
+            // Instanciate a new job
+            var job = new Job(this,
+                input,
+                output,
+                "mp3 (Lame)",
+                String.Format("-b={0}", bitrate));
+
+            //Enqueue it
+            EnqueueJob(job);
+
+            return job;
+        }
+
+        public IdMCJob ToFlac(String input, String output, int level = 5)
+        {
+            // Verify copression level
+            int compression = (level >= 0 && level <= 8)
+                                ? level
+                                : 5;
+
+            // Instanciate a new job
+            var job = new Job(this,
+                input,
+                output,
+                "FLAC",
+                String.Format("-compression-level-{0}", compression));
+          
+            //Enqueue it
+            EnqueueJob(job);
+
+            return job;
+        }
+
+        #endregion
+
+        #region Core limit
+
         private int _nbCores = 1;
         public int NbCores
         {
             get { return _nbCores; }
             set
             {
-                _nbCores = Math.Min(value, Environment.ProcessorCount);
+                _nbCores = value <= 0
+                    ? Environment.ProcessorCount - 1
+                    : Math.Min(value, Environment.ProcessorCount);
 
-                if (_nbCores <= 0)
-                    _nbCores = Environment.ProcessorCount - 1;
-
-                Log.Debug(() => "dMC.Converter NbCores = {0}", _nbCores);
+                Log.Info(() => "Using {0} cores", _nbCores);
             }
         }
 
-        private readonly DMCSCRIPTINGLib.Converter dbPoweramp;
+        #endregion
 
-        private readonly Queue<Job>  WaitingJobs = new Queue<Job>();
-        private readonly List<Job>   RunningJobs = new List<Job>();
+        #region Job Queue
 
-        private dMCConverter()
-        {
-            // Default converter options
-            dbPoweramp = new DMCSCRIPTINGLib.Converter();
-            dbPoweramp.DeleteSourceFiles = 0;
-            dbPoweramp.PreserveTags = 1;
+        private readonly Queue<Job> _waitingJobs;
 
-            // Set NbCores
-            NbCores = -1;
+        public IEnumerable<IdMCJob> Queue { get { return _waitingJobs; } } 
 
-            // Watchdog
-            jobWatchdog = new Timer(500);
-            jobWatchdog.Elapsed += new ElapsedEventHandler(jobWatchdog_Elapsed);
-        }
-
-        public Guid ConvertToMP3(String input, String output, int bitrate = 320, string logfile=null)
-        {
-            // Instanciate a new job
-            var job = new Job()
-            {
-                Input = input,
-                Output = output,
-                Encoder = "mp3 (Lame)",
-                EncoderSettings = String.Format("-b={0}", bitrate),
-                Logfile = logfile
-            };
-
-            //Enqueue it
-            EnqueueJob(job);
-
-            return job.ID;
-        }
+        private readonly Object _lock = new Object();
 
         private void EnqueueJob(Job job)
         {
             // Enqueue the job
-            Log.Info(()=>"Enqueing new job: {0}", job.Output);
+            Log.Info(()=>"Enqueuing new job <{0}>", job.Output);
             lock (_lock)
             {
-                WaitingJobs.Enqueue(job);
+                _waitingJobs.Enqueue(job);
             }
 
             // Ensure watchdog is running
-            if (!jobWatchdog.Enabled)
+            if (!_scheduler.Enabled)
             {
-                Log.Info(()=>"resuming watchdog");
-                jobWatchdog.Start();
+                Log.Debug(() => "Resuming watchdog");
+                _scheduler.Start();
             }
         }
 
-        private void ExecuteJob(Job job, int core)
-        {
-            Console.WriteLine("Core<{0}> start running Job: {1}", core, job.Output);
 
-            job.Core = core;
-            job.IsRunning = true;
-            job.EncoderSettings += String.Format(" -processor={0}", core);
+        #endregion
+
+        #region Job Runner
+
+        private readonly Job[] _runningJobs;
+
+        public IEnumerable<IdMCJob> Runnings { get { return _runningJobs.Where(x=>x!=null); } } 
+
+
+        private void RunJob(Job job, int core)
+        {
+            Log.Info(() => "Core <{0}> - Starting job <{1}>", core, job.Output);
 
             lock (_lock)
             {
-                RunningJobs.Add(job);
+                // Check that the core is availble
+                if (_runningJobs[core] != null)
+                {
+                    Log.Error(() => "Core <{0}> is not available. Skip job");
+                    job.Status = JobStatus.Failed;
+                    return;
+                }
+
+                // Add job to the running list
+                _runningJobs[core] = job;
+                job.Status = JobStatus.Running;
             }
 
-            dMCConverter DMC = new dMCConverter();
+            // Check that the exe is available
+            var exepath = Properties.Settings.Default.ExePath;
+            if (!File.Exists(exepath))
+            {              
+                Log.Error(()=>"dBpoweramp CoreConverter.exe couldn't be found at specified location <{0}>", exepath);
+                job.Status = JobStatus.Failed;
 
-
-            var task = Task.Factory.StartNew(() =>
-                {
-                    ProcessStartInfo processInfo = new ProcessStartInfo("cmd.exe");
-                    processInfo.Verb = "runas";
-                    processInfo.Arguments = "/C C:\\dBpoweramp\\CoreConverter.exe"; //use /K to keep windows opened
-                    processInfo.Arguments +=
-                        " -infile=" + "\"" + job.Input + "\"" +
-                        " -outfile=" + "\"" + job.Output + "\"" +
-                        " -convert_to=" + "\"" + "mp3 (Lame)" + "\"" +
-                        " -processor=" + "\"" + job.Core + "\"" +
-                        " -b " + "320" + 
-                        " -V 2";
-                    processInfo.Arguments += " /R /D Y";
-                    var p = Process.Start(processInfo);
-                    p.WaitForExit();
-                    //DMC.Convert(job.Input, job.Output, job.Encoder, job.EncoderSettings, job.Logfile));
-                });
-    
-                                             
-            task.ContinueWith(x =>
-            {
-                job.IsRunning = false;
-                job.Core = -1;
-
+                // TODO -- refactoring
                 // Remove job from runnings one
                 lock (_lock)
                 {
-                    RunningJobs.Remove(job);
+                    if (_runningJobs[core] == job)
+                        _runningJobs[core] = null;
+                    else
+                        Log.Fatal(() => "Core <{0}> is not hosting the expected job.");
                 }
-               
-                // Notify job is done
-                if (JobDone != null)
-                    JobDone(job.ID);
+                return;
+            }
+
+            // Start dBpoweramp CLI
+            var task = Task.Factory.StartNew(() =>
+            {
+                var processInfo = new ProcessStartInfo("cmd.exe");
+                processInfo.Verb = "runas";
+                processInfo.Arguments = "/C " + exepath; //use /K to keep windows opened
+                processInfo.Arguments +=
+                    " -infile=" + "\"" + job.Input + "\"" +
+                    " -outfile=" + "\"" + job.Output + "\"" +
+                    " -convert_to=" + "\"" + job.Encoder + "\"" +
+                    " -processor=" + "\"" + core + "\"" +
+                    job.Settings +
+                    " -V 2";
+                processInfo.Arguments += " /R /D Y";
+
+                var p = Process.Start(processInfo);
+                p.WaitForExit();
+            });
+
+            // On CLI exit     
+            task.ContinueWith(x =>
+            {
+                Log.Info(() => "Core <{0}> - Ending job <{1}>", core, job.Output);
+                job.Status = JobStatus.Succeed;     // TODO - test failed or not
+  
+                // Remove job from runnings one
+                lock (_lock)
+                {
+                    if (_runningJobs[core] == job)
+                        _runningJobs[core] = null;
+                    else
+                        Log.Fatal(() => "Core <{0}> is not hosting the expected job.");
+                }
             });
         }
 
-        private Object _lock = new Object();
-
-        private readonly Timer jobWatchdog = new Timer(500);
-
-        void  jobWatchdog_Elapsed(object sender, ElapsedEventArgs e)
+        public bool IsWorking
         {
-            // Find available core
-            var usedCores = RunningJobs.Select(x => x.Core).Distinct().ToList();
-            var availableCore = -1;
-            for (int i = 0; i < NbCores; i++)
+            get { return Queue.Any() || Runnings.Any(); }
+        }
+
+        private void FireJobUpdated(IdMCJob job)
+        {
+            if (JobUpdated != null)
+                JobUpdated(job);
+        }
+
+        #endregion
+
+        #region Job Scheduler
+
+        private readonly Timer _scheduler = new Timer(500);
+
+        private void scheduler_Elapsed(object sender, ElapsedEventArgs e)
+        {
+            // Find first available core
+            int core = -1;
+            lock (_lock)
             {
-                if (!usedCores.Contains(i))
-                {
-                    availableCore = i;
-                    Log.Debug(()=>"Core<{0}> is waiting for a new job.", i);
-                    break;
-                }
+                for (int i = 0; i < _runningJobs.Length; i++)
+                    if (_runningJobs[i] == null)
+                    {
+                        core = i;
+                        Log.Debug(() => "Core <{0}> is waiting for a new job.", i);
+                        break;
+                    }
             }
 
             // No available cores
-            if (availableCore < 0)
-                return;    
+            if (core < 0 || core > NbCores)
+                return;
 
- 	        // Launch a new job
-            if (WaitingJobs.Count > 0)
+            // Launch a new job
+            if (_waitingJobs.Count > 0)
             {
                 Job job;
                 lock (_lock)
                 {
-                    job = WaitingJobs.Dequeue();
+                    job = _waitingJobs.Dequeue();
                 }
-                ExecuteJob(job, availableCore);
+                RunJob(job, core);
             }
             else
             {
                 // Suspend watchdog
-                Log.Info(()=>"No more pending job => stopping watchdog");
-                jobWatchdog.Stop();
+                Log.Debug(() => "No more pending job => stopping watchdog");
+                _scheduler.Stop();
+            }
+        }
+
+        #endregion
+
+        #region Job class implementation
+
+        public event Action<IdMCJob> JobUpdated;
+
+        class Job : IdMCJob
+        {
+            public Job(dMCConverter parent, String input, String output, String encoder, String settings = "")
+            {
+                Parent      = parent;
+                Input       = input;
+                Output      = output;
+                Encoder     = encoder;
+                Settings    = settings;
+
+                Status       = JobStatus.Created;
             }
 
-         
+            public dMCConverter Parent   { get; private set; }
+
+            public string   Input        { get; private set; }
+            public string   Output       { get; private set; }
+            public string   Encoder      { get; private set; }
+            public string   Settings     { get; private set; }
+
+            public DateTime CreationTime { get; private set; }
+            public DateTime StartTime    { get; private set; }
+            public DateTime StopTime     { get; private set; }
+
+
+            private JobStatus _status;
+            public JobStatus Status 
+            {
+                get { return _status; }
+                set 
+                {
+                    _status = value;
+                    switch (value)
+                    {
+                        case JobStatus.Created  : CreationTime  = DateTime.Now; break;
+                        case JobStatus.Running  : StartTime     = DateTime.Now; break;
+                        case JobStatus.Succeed  :
+                        case JobStatus.Failed   : StopTime      = DateTime.Now; break;
+                        case JobStatus.InQueue  :
+                        default                 : break;
+                    }
+                    Parent.FireJobUpdated(this);
+                }
+            }
         }
 
-        public bool IsRunning
-        {
-            get { return WaitingJobs.Count != 0 || RunningJobs.Count != 0; }
-        }
-
-        public event Action<Guid> JobDone;
-
+        #endregion
 
         #region Singleton
 
         private static readonly Lazy<dMCConverter> _instance = new Lazy<dMCConverter>(() => new dMCConverter());
 
         public static dMCConverter Instance { get { return _instance.Value; } }
-
-        #endregion
-
-        #region Job class
-
-        public class Job
-        {
-            public Job()
-            {
-                ID = new Guid();
-                IsRunning = false;
-                Core = -1;
-            }
-
-            public Guid ID;
-
-            public string Input;
-            public string Output;
-            public string Encoder;
-            public string EncoderSettings;
-            public string Logfile;
-
-            public bool   IsRunning;
-            public int    Core;
-        }
 
         #endregion
     }

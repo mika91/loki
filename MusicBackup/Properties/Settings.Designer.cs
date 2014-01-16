@@ -8,7 +8,7 @@
 // </auto-generated>
 //------------------------------------------------------------------------------
 
-namespace MusicBackup.ConsoleApp.Properties {
+namespace MusicBackup.Properties {
     
     
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
@@ -25,19 +25,19 @@ namespace MusicBackup.ConsoleApp.Properties {
         
         [global::System.Configuration.ApplicationScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("D:\\Music\\src\\")]
-        public string Source {
+        [global::System.Configuration.DefaultSettingValueAttribute("C:\\dBpoweramp\\CoreConverter.exe")]
+        public string ExePath {
             get {
-                return ((string)(this["Source"]));
+                return ((string)(this["ExePath"]));
             }
         }
         
         [global::System.Configuration.ApplicationScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("D:\\Music\\dest\\")]
-        public string Destination {
+        [global::System.Configuration.DefaultSettingValueAttribute("-1")]
+        public int NbCores {
             get {
-                return ((string)(this["Destination"]));
+                return ((int)(this["NbCores"]));
             }
         }
     }

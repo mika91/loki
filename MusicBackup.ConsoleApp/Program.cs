@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using MusicBackup.Entities;
 using log4net;
 using Loki.Utils;
 
@@ -39,13 +38,6 @@ namespace MusicBackup.ConsoleApp
             // Read configuration
             var src_path = new DirectoryInfo(Properties.Settings.Default.Source);
             var dest_path = new DirectoryInfo(Properties.Settings.Default.Destination);
-            var nbCores = Convert.ToInt32(Properties.Settings.Default.NbCores);
-
-            // Init converter
-            //AudioConverter.Instance.NbCores = 3;    // nbCores;     // TODO
-
-
-            List<ScanResult> scanResults = null;
 
             // Import source library
             Log.Info(() => "Trying to load source libray...");
@@ -53,19 +45,15 @@ namespace MusicBackup.ConsoleApp
             if (srcLib == null)
             {
                 Log.Info(() => "No library found. Create a new one");
-                scanResults = AudioLibrary.Create(src_path.FullName, out srcLib);
+                srcLib = AudioLibrary.Create(src_path.FullName);
             }
             else if (new DirectoryInfo(srcLib.Root).FullName != src_path.FullName) // TODO securise if path doen't exist
             {
                 Log.Info(() => "Library root folder doesn't match. Create a new one");
-                scanResults = AudioLibrary.Create(src_path.FullName, out srcLib); 
+                srcLib = AudioLibrary.Create(src_path.FullName);
             }
-            else
-            {
-                Log.Info(() => "Scanning source library...");
-                scanResults = srcLib.Scan(false);
-            }
-            PrintScanRes(scanResults);
+          
+            //PrintScanRes(scanResults);
 
             // Import libraries
             Log.Info(() => "Trying to load backup libray...");
@@ -73,26 +61,24 @@ namespace MusicBackup.ConsoleApp
             if (destLib == null)
             {
                 Log.Info(() => "No library found. Create a new one");
-                scanResults = AudioLibrary.Create(dest_path.FullName, out destLib);
+                destLib = AudioLibrary.Create(dest_path.FullName);
             }
             else if (new DirectoryInfo(destLib.Root).FullName != dest_path.FullName) // TODO securise if path doen't exist
             {
                 Log.Info(() => "Library root folder doesn't match. Create a new one");
-                scanResults = AudioLibrary.Create(dest_path.FullName, out destLib);
+                destLib = AudioLibrary.Create(dest_path.FullName);
             }
-            else
-            {
-                Log.Info(() => "Scanning destination library...");
-                scanResults = destLib.Scan(false);
-            }
-            PrintScanRes(scanResults);
+
+            //PrintScanRes(scanResults);
 
             // Backing up library
-            var results = AudioManager.Backup(srcLib, destLib, true, false).ToList();
+            var results = AudioManager.Backup(srcLib, destLib, false, false).ToList();
             PrintBackupRes(results);
 
             // Saving Libraries
+            Log.Info(() => "Saving source library...");
             srcLib.Save("src.content");
+            Log.Info(() => "Saving destination library...");
             destLib.Save("dest.content");
 
             //// Exit
@@ -100,42 +86,28 @@ namespace MusicBackup.ConsoleApp
             //Console.ReadLine();
         }
 
-        public static void PrintBackupRes(List<BackupResult> results)
+        public static void PrintBackupRes(List<AudioManager.BackupResult> results)
         {
-            Log.Info(() => "*************************");
-            Log.Info(() => "***     RESULTS      ****");
-            Log.Info(() => "*************************");
+            Log.Info(() => "Backup summary:");
 
-            var audioFiles  = results.Where(x => x.Source.AudioInfo != null).ToList();
-            var miscFiles   = results.Where(x => x.Source.AudioInfo == null).ToList();
+            var audioFiles  = results.Where(x => x.Source is AudioItem).ToList();
+            var miscFiles   = results.Where(x => !(x.Source is AudioItem)).ToList();
            
-            Log.Info(() => "");
-            Log.Info(() => "Music files converted = {0}", audioFiles.Count(x => x.Action == BackupResult.ActionType.Converted));
-            Log.Info(() => "Music files copied    = {0}", audioFiles.Count(x => x.Action == BackupResult.ActionType.Copied));
-            Log.Info(() => "Music files ignored   = {0}", audioFiles.Count(x => x.Action == BackupResult.ActionType.Ignored));
-            Log.Info(() => "Music files total     = {0}", audioFiles.Count());
-
-            Log.Info(() => "");
-            Log.Info(() => "Misc files copied    = {0}" , miscFiles.Count(x => x.Action == BackupResult.ActionType.Copied));
-            Log.Info(() => "Misc files ignored   = {0}" , miscFiles.Count(x => x.Action == BackupResult.ActionType.Ignored));
-            Log.Info(() => "Misc files total     = {0}" , miscFiles.Count());
+            Log.Info(() => "\tMusic files converted : {0}", audioFiles.Count(x => x.Action == AudioManager.BackupResult.ActionType.Converted));
+            Log.Info(() => "\tMusic files copied    : {0}", audioFiles.Count(x => x.Action == AudioManager.BackupResult.ActionType.Copied));
+            Log.Info(() => "\tMusic files ignored   : {0}", audioFiles.Count(x => x.Action == AudioManager.BackupResult.ActionType.Ignored));
+            Log.Info(() => "\tMusic files total     : {0}", audioFiles.Count());
+                                                 
+            Log.Info(() => "");               
+            Log.Info(() => "\tMisc files copied     : {0}" , miscFiles.Count(x => x.Action == AudioManager.BackupResult.ActionType.Copied));
+            Log.Info(() => "\tMisc files ignored    : {0}" , miscFiles.Count(x => x.Action == AudioManager.BackupResult.ActionType.Ignored));
+            Log.Info(() => "\tMisc files total      : {0}" , miscFiles.Count());
         }
 
-        // TODO -- scan result both misc & audio files
-        public static void PrintScanRes(List<ScanResult> results)
-        {
-            Log.Info(() => "*************************");
-            Log.Info(() => "***  Scan Results    ****");
-            Log.Info(() => "*************************");
+      
 
-            Log.Info(() => "");
-            Log.Info(() => "Files added     = {0}", results.Count(x => x.Action == ScanResult.ActionType.Added));
-            Log.Info(() => "Files deleted   = {0}", results.Count(x => x.Action == ScanResult.ActionType.Deleted));
-            Log.Info(() => "Files ignored   = {0}", results.Count(x => x.Action == ScanResult.ActionType.Ignored));
-            Log.Info(() => "Files updated   = {0}", results.Count(x => x.Action == ScanResult.ActionType.Updated));
-            Log.Info(() => "Files total     = {0}", results.Count());
-        }
 
+     
         //static void Main2(string[] args)
         //{
         //    // Read configuration

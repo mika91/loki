@@ -57,13 +57,19 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="dMC\dMCConverter.cs" />
-    <Compile Include="Entities\AudioInfo.cs" />
+    <Compile Include="dMC\IdMCJob.cs" />
     <Compile Include="AudioManager.cs" />
-    <Compile Include="Entities\BackupResult.cs" />
-    <Compile Include="Entities\AudioLibrary.cs" />
+    <Compile Include="AudioLibrary.cs" />
     <Compile Include="dMC\dMCProps.cs" />
-    <Compile Include="Entities\ScanResult.cs" />
+    <Compile Include="LibItems\Item.cs" />
+    <Compile Include="LibItems\AudioItem.cs" />
+    <Compile Include="LibItems\MiscItem.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Properties\Settings.Designer.cs">
+      <AutoGen>True</AutoGen>
+      <DesignTimeSharedInput>True</DesignTimeSharedInput>
+      <DependentUpon>Settings.settings</DependentUpon>
+    </Compile>
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Loki.Utils\Loki.Utils.csproj">
@@ -81,6 +87,13 @@
       <Isolated>False</Isolated>
       <EmbedInteropTypes>True</EmbedInteropTypes>
     </COMReference>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="app.config" />
+    <None Include="Properties\Settings.settings">
+      <Generator>SettingsSingleFileGenerator</Generator>
+      <LastGenOutput>Settings.Designer.cs</LastGenOutput>
+    </None>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
