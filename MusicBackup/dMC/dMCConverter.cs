@@ -15,6 +15,7 @@ namespace MusicBackup.dMC
     /// http://dbpoweramp.com/developer-scripting-dmc.htm
     /// http://dbpoweramp.com/developer-cli-encoder.htm
     /// http://lame.sourceforge.net/vbr.php
+    /// http://stackoverflow.com/questions/19170131/run-a-commandline-process-and-get-the-output-while-that-process-is-still-running
     /// </summary>
     internal class dMCConverter
     {
@@ -171,6 +172,75 @@ namespace MusicBackup.dMC
             // Start dBpoweramp CLI
             var task = Task.Factory.StartNew(() =>
             {
+                #region multi-window
+                //var processInfo = new ProcessStartInfo("cmd.exe");
+                //processInfo.Verb = "runas";
+                //processInfo.Arguments = "/C " + exepath; //use /K to keep windows opened
+                //processInfo.Arguments +=
+                //    " -infile=" + "\"" + job.Input + "\"" +
+                //    " -outfile=" + "\"" + job.Output + "\"" +
+                //    " -convert_to=" + "\"" + job.Encoder + "\"" +
+                //    " -processor=" + "\"" + core + "\"" +
+                //    job.Settings +
+                //    " -V 2";
+                //processInfo.Arguments += " /R /D Y";
+
+                //var p = Process.Start(processInfo);
+                //p.WaitForExit();
+                #endregion
+
+                #region test 1 (working)
+
+                //var processInfo = new ProcessStartInfo("cmd.exe");
+                //processInfo.Verb = "runas";
+                //processInfo.Arguments = "/C " + exepath; //use /K to keep windows opened
+                //processInfo.Arguments +=
+                //    " -infile=" + "\"" + job.Input + "\"" +
+                //    " -outfile=" + "\"" + job.Output + "\"" +
+                //    " -convert_to=" + "\"" + job.Encoder + "\"" +
+                //    " -processor=" + "\"" + core + "\"" +
+                //    job.Settings +
+                //    " -V 2";
+                //processInfo.Arguments += " /R /D Y";
+
+                //processInfo.CreateNoWindow = true;
+                //processInfo.UseShellExecute = false;
+                //processInfo.RedirectStandardError = true;
+                //processInfo.RedirectStandardOutput = true;
+                ////processInfo.StandardErrorEncoding = Encoding.Unicode;
+                ////processInfo.StandardOutputEncoding = Encoding.Unicode;
+
+                //var p = Process.Start(processInfo);
+                //int progress = 0;
+                //while (!p.HasExited)
+                //{
+                //    var ch = (char) p.StandardOutput.Read();
+
+                //    if (ch == '*')
+                //    {
+                //        progress++;
+                //        job.Progress = (int) (100 * (progress / 59f)); // Maximum value is 59, so a ProgressBar Maximum property value would be 59.
+                //        Log.Info(()=>"=>{0} : {1}%", job.Output, job.Progress);
+                //    }
+
+                //    if (progress == 59)
+                //    {
+                //        // I store only the last line 'cause it has interesting information:
+                //        // Example message: Conversion completed in 30 seconds x44 realtime encoding
+                //        var msg = p.StandardOutput.ReadToEnd().Trim();
+                //        var splits = msg.Split('\n');
+                //        Log.Info(() => "=>{0} : {1}", job.Output, splits.Last());
+
+                //        job.Progress = 100;
+                //        job.Status = JobStatus.Succeed;    
+                //    }
+                //}
+
+                //// necessary?
+                //p.WaitForExit();
+
+                #endregion
+
                 var processInfo = new ProcessStartInfo("cmd.exe");
                 processInfo.Verb = "runas";
                 processInfo.Arguments = "/C " + exepath; //use /K to keep windows opened
@@ -183,8 +253,57 @@ namespace MusicBackup.dMC
                     " -V 2";
                 processInfo.Arguments += " /R /D Y";
 
-                var p = Process.Start(processInfo);
+                // Redirect outputs and hide cmd windows
+                processInfo.CreateNoWindow = true;
+                processInfo.UseShellExecute = false;
+                processInfo.RedirectStandardError = true;
+                processInfo.RedirectStandardOutput = true;
+                //processInfo.StandardErrorEncoding = Encoding.Unicode;
+                //processInfo.StandardOutputEncoding = Encoding.Unicode;
+
+                // Start the process
+                var p = new Process();
+                p.StartInfo = processInfo;
+                p.Start();
+
+                // Progress management
+                int progress = 0;
+                while (!p.HasExited && progress < 59)
+                {
+                    var ch = (char)p.StandardOutput.Read();
+
+                    if (ch == '*')
+                    {
+                        progress++;
+                        job.Progress = (int)(100 * (progress / 59f)); // Maximum value is 59, so a ProgressBar Maximum property value would be 59.
+                        Log.Debug(() => "=>{0} : {1}%", job.Output, job.Progress);
+                    }
+                }
+
+                // Ensure process has finished
                 p.WaitForExit();
+
+                // Conversion result
+                var errors = p.StandardError.ReadToEnd();
+                if (errors.Length > 0)
+                {
+                    Log.Error(() => "An error occured whil converting {0} : {1}", job.Output, errors);
+                    job.Status = JobStatus.Failed;
+                }
+                else
+                {
+                    // I store only the last line 'cause it has interesting information:
+                    // Example message: Conversion completed in 30 seconds x44 realtime encoding
+                    var msg = p.StandardOutput.ReadToEnd().Trim();
+                    var splits = msg.Split('\n');
+                    Log.Info(() => "Conversion succeeded {0} : {1}", job.Output, splits.Last());
+
+                    job.Progress = 100;
+                    job.Status = JobStatus.Succeed;
+                }
+               
+                // Close the process
+                p.Close();
             });
 
             // On CLI exit     
@@ -237,7 +356,7 @@ namespace MusicBackup.dMC
             }
 
             // No available cores
-            if (core < 0 || core > NbCores)
+            if (core < 0 || core >= NbCores)
                 return;
 
             // Launch a new job
@@ -274,7 +393,8 @@ namespace MusicBackup.dMC
                 Encoder     = encoder;
                 Settings    = settings;
 
-                Status       = JobStatus.Created;
+                Progress    = 0;
+                Status      = JobStatus.Created;
             }
 
             public dMCConverter Parent   { get; private set; }
@@ -288,6 +408,7 @@ namespace MusicBackup.dMC
             public DateTime StartTime    { get; private set; }
             public DateTime StopTime     { get; private set; }
 
+            public int      Progress     { get; set; }
 
             private JobStatus _status;
             public JobStatus Status 

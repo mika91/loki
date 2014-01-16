@@ -19,6 +19,7 @@ namespace MusicBackup.dMC
         DateTime    StopTime     { get; }
 
         JobStatus   Status       { get; }
+        int         Progress     { get; }
     }
 
 
